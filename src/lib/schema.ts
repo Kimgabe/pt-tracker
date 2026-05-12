@@ -93,5 +93,17 @@ export async function initializeDatabase() {
       )`,
       args: [],
     },
+    {
+      sql: `CREATE TABLE IF NOT EXISTS fitness_assessments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        pushup_max INTEGER NOT NULL DEFAULT 0,
+        pullup_max INTEGER NOT NULL DEFAULT 0,
+        plank_seconds INTEGER NOT NULL DEFAULT 0,
+        squat_max INTEGER NOT NULL DEFAULT 0,
+        level TEXT NOT NULL CHECK(level IN ('beginner','intermediate','advanced')),
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )`,
+      args: [],
+    },
   ]);
 }

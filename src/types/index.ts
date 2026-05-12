@@ -79,6 +79,16 @@ export interface BodyLog {
   notes: string | null;
 }
 
+export interface FitnessAssessment {
+  id: number;
+  pushup_max: number;
+  pullup_max: number;
+  plank_seconds: number;
+  squat_max: number;
+  level: 'beginner' | 'intermediate' | 'advanced';
+  created_at: string;
+}
+
 export interface DailyMacroSummary {
   date: string;
   total_calories: number;

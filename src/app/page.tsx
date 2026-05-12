@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Dumbbell, UtensilsCrossed, Scale, ChevronRight, Flame, Beef, Wheat, Droplets } from 'lucide-react';
 
@@ -34,12 +35,14 @@ interface ProgramDay {
 }
 
 export default function HomePage() {
+  const router = useRouter();
   const [initialized, setInitialized] = useState(false);
   const [todayWorkouts, setTodayWorkouts] = useState<WorkoutSession[]>([]);
   const [mealSummary, setMealSummary] = useState<MealSummary | null>(null);
   const [recentWeights, setRecentWeights] = useState<BodyLog[]>([]);
   const [programDays, setProgramDays] = useState<ProgramDay[]>([]);
   const [loading, setLoading] = useState(true);
+  const [needsOnboarding, setNeedsOnboarding] = useState(false);
 
   const today = new Date().toISOString().split('T')[0];
   const todayDisplay = new Date().toLocaleDateString('ko-KR', {
@@ -52,6 +55,13 @@ export default function HomePage() {
   const initDB = useCallback(async () => {
     try {
       await fetch('/api/init', { method: 'POST' });
+      // Check if onboarding is needed
+      const assessRes = await fetch('/api/assessment');
+      const assessData = await assessRes.json();
+      if (!assessData.exists) {
+        router.push('/onboarding');
+        return;
+      }
       setInitialized(true);
     } catch {
       setInitialized(true);
