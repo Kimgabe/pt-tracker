@@ -105,5 +105,41 @@ export async function initializeDatabase() {
       )`,
       args: [],
     },
+    {
+      sql: `CREATE TABLE IF NOT EXISTS youtube_workouts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        workout_name TEXT NOT NULL,
+        source_url TEXT NOT NULL,
+        creator TEXT,
+        workout_type TEXT NOT NULL DEFAULT 'strength',
+        total_duration_min INTEGER NOT NULL DEFAULT 0,
+        estimated_calories REAL NOT NULL DEFAULT 0,
+        exercises_json TEXT NOT NULL DEFAULT '[]',
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )`,
+      args: [],
+    },
+    {
+      sql: `CREATE TABLE IF NOT EXISTS youtube_recipes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        recipe_name TEXT NOT NULL,
+        source_url TEXT NOT NULL,
+        creator TEXT,
+        goal_category TEXT NOT NULL DEFAULT 'maintain',
+        ingredients_json TEXT NOT NULL DEFAULT '[]',
+        steps_json TEXT NOT NULL DEFAULT '[]',
+        calories INTEGER NOT NULL DEFAULT 0,
+        protein_g REAL NOT NULL DEFAULT 0,
+        carb_g REAL NOT NULL DEFAULT 0,
+        fat_g REAL NOT NULL DEFAULT 0,
+        estimated_cost_krw INTEGER NOT NULL DEFAULT 0,
+        cooking_time_min INTEGER NOT NULL DEFAULT 0,
+        difficulty TEXT NOT NULL DEFAULT 'medium',
+        meal_type TEXT NOT NULL DEFAULT 'lunch',
+        tags_json TEXT NOT NULL DEFAULT '[]',
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )`,
+      args: [],
+    },
   ]);
 }

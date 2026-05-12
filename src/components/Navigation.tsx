@@ -2,12 +2,13 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, Dumbbell, UtensilsCrossed, TrendingUp } from 'lucide-react';
+import { Home, Dumbbell, UtensilsCrossed, TrendingUp, CirclePlay } from 'lucide-react';
 
 const navItems = [
   { href: '/', icon: Home, label: '홈' },
   { href: '/workout', icon: Dumbbell, label: '운동' },
   { href: '/diet', icon: UtensilsCrossed, label: '식단' },
+  { href: '/discover', icon: CirclePlay, label: '디스커버' },
   { href: '/progress', icon: TrendingUp, label: '진행률' },
 ];
 
