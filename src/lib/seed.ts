@@ -8,7 +8,9 @@ export async function seedDatabase() {
 }
 
 export async function reseedDatabase() {
-  // Clear all program-related data (preserves workout history)
+  // Clear all data including workout history (FK dependencies)
+  await db.execute('DELETE FROM workout_sets');
+  await db.execute('DELETE FROM workout_sessions');
   await db.execute('DELETE FROM program_day_exercises');
   await db.execute('DELETE FROM program_days');
   await db.execute('DELETE FROM programs');
