@@ -36,6 +36,7 @@ export default function WorkoutPage() {
   useEffect(() => {
     async function fetchProgram() {
       try {
+        await fetch('/api/init', { method: 'POST' });
         const responses = await Promise.all(
           [1, 2, 3, 4].map((id) => fetch(`/api/programs/${id}`))
         );
