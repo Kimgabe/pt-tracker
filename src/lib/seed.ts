@@ -8,13 +8,20 @@ export async function seedDatabase() {
 }
 
 export async function reseedDatabase() {
-  // Clear all data including workout history (FK dependencies)
-  await db.execute('DELETE FROM workout_sets');
-  await db.execute('DELETE FROM workout_sessions');
-  await db.execute('DELETE FROM program_day_exercises');
-  await db.execute('DELETE FROM program_days');
-  await db.execute('DELETE FROM programs');
-  await db.execute('DELETE FROM exercises');
+  // Disable FK checks, drop all tables, then recreate and reseed
+  await db.execute('PRAGMA foreign_keys = OFF');
+  await db.execute('DROP TABLE IF EXISTS workout_sets');
+  await db.execute('DROP TABLE IF EXISTS workout_sessions');
+  await db.execute('DROP TABLE IF EXISTS program_day_exercises');
+  await db.execute('DROP TABLE IF EXISTS program_days');
+  await db.execute('DROP TABLE IF EXISTS programs');
+  await db.execute('DROP TABLE IF EXISTS exercises');
+  await db.execute('DROP TABLE IF EXISTS meals');
+  await db.execute('DROP TABLE IF EXISTS body_logs');
+  await db.execute('PRAGMA foreign_keys = ON');
+  // Reimport and recreate
+  const { initializeDatabase } = await import('./schema');
+  await initializeDatabase();
   await insertHomeTrainingData();
 }
 
