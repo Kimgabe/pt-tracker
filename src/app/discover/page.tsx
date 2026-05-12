@@ -13,6 +13,7 @@ import {
   ChevronDown,
   ChevronUp,
   ExternalLink,
+  X,
 } from 'lucide-react';
 
 interface Exercise {
@@ -183,15 +184,27 @@ export default function DiscoverPage() {
       {activeTab === 'analyze' && (
         <div className="space-y-4">
           <div className="flex gap-2">
-            <input
-              type="text"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && !loading && handleAnalyze()}
-              placeholder="YouTube URL 붙여넣기..."
-              className="flex-1 bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 placeholder:text-zinc-500"
-              disabled={loading}
-            />
+            <div className="relative flex-1">
+              <input
+                type="text"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && !loading && handleAnalyze()}
+                placeholder="YouTube URL 붙여넣기..."
+                className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 pr-9 text-sm focus:outline-none focus:border-emerald-500 placeholder:text-zinc-500"
+                disabled={loading}
+              />
+              {url && !loading && (
+                <button
+                  type="button"
+                  onClick={() => setUrl('')}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 text-zinc-500 hover:text-zinc-300 active:text-white transition-colors"
+                  aria-label="입력 지우기"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              )}
+            </div>
             <button
               onClick={handleAnalyze}
               disabled={loading || !url.trim()}
@@ -210,8 +223,13 @@ export default function DiscoverPage() {
           )}
 
           {error && (
-            <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 text-red-400 text-sm">
-              {error}
+            <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 space-y-2">
+              <p className="text-red-400 text-sm">{error}</p>
+              {error.includes('Transcript') && (
+                <p className="text-zinc-400 text-xs">
+                  💡 자막 추출이 차단된 경우, 텔레그램 PT봇에 YouTube URL을 보내면 로컬에서 분석 후 자동 저장됩니다.
+                </p>
+              )}
             </div>
           )}
 
