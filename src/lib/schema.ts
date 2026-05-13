@@ -151,4 +151,17 @@ export async function initializeDatabase() {
       // Column already exists — ignore
     }
   }
+
+  // Add source tracking columns to programs (idempotent)
+  const programAlters = [
+    `ALTER TABLE programs ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'`,
+    `ALTER TABLE programs ADD COLUMN source_url TEXT`,
+  ];
+  for (const sql of programAlters) {
+    try {
+      await db.execute({ sql, args: [] });
+    } catch {
+      // Column already exists — ignore
+    }
+  }
 }
