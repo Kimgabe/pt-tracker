@@ -89,7 +89,7 @@ export default function DiscoverPage() {
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [result, setResult] = useState<{ type: string; data: WorkoutResult | RecipeResult; saved: boolean; message?: string } | null>(null);
+  const [result, setResult] = useState<{ type: string; data: WorkoutResult | RecipeResult; saved: boolean; message?: string; id?: number } | null>(null);
 
   const [savedWorkouts, setSavedWorkouts] = useState<WorkoutResult[]>([]);
   const [savedRecipes, setSavedRecipes] = useState<RecipeResult[]>([]);
@@ -348,7 +348,13 @@ export default function DiscoverPage() {
               </div>
 
               {result.type === 'workout' ? (
-                <WorkoutCard workout={result.data as WorkoutResult} expanded />
+                <WorkoutCard
+                  workout={{ ...(result.data as WorkoutResult), id: result.id ?? (result.data as WorkoutResult).id }}
+                  expanded
+                  onImport={result.saved ? handleImportAsProgram : undefined}
+                  onAddToDay={result.saved ? openDayPicker : undefined}
+                  importing={importingId === result.id && actionLoading}
+                />
               ) : (
                 <RecipeCard recipe={result.data as RecipeResult} expanded />
               )}
