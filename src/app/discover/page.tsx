@@ -371,9 +371,12 @@ export default function DiscoverPage() {
           ) : (
             savedWorkouts.map((w) => (
               <div key={w.id} className="relative">
-                <button
+                <div
                   onClick={() => toggleExpand(`w-${w.id}`)}
-                  className="w-full text-left"
+                  className="w-full text-left cursor-pointer"
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => e.key === 'Enter' && toggleExpand(`w-${w.id}`)}
                 >
                   <WorkoutCard
                     workout={w}
@@ -382,7 +385,7 @@ export default function DiscoverPage() {
                     onAddToDay={openDayPicker}
                     importing={importingId === w.id && actionLoading}
                   />
-                </button>
+                </div>
                 <div className="absolute top-3 right-3 flex gap-2">
                   <button
                     onClick={() => toggleExpand(`w-${w.id}`)}
