@@ -5,6 +5,58 @@ import { classifyContent } from '@/lib/pipelines/contentClassifier';
 import { extractWorkout } from '@/lib/pipelines/workoutExtractor';
 import { extractRecipe } from '@/lib/pipelines/recipeExtractor';
 
+async function findCached(sourceUrl: string) {
+  const [workoutRow, recipeRow] = await Promise.all([
+    db.execute({ sql: 'SELECT * FROM youtube_workouts WHERE source_url = ? LIMIT 1', args: [sourceUrl] }),
+    db.execute({ sql: 'SELECT * FROM youtube_recipes WHERE source_url = ? LIMIT 1', args: [sourceUrl] }),
+  ]);
+
+  if (workoutRow.rows.length > 0) {
+    const row = workoutRow.rows[0] as Record<string, unknown>;
+    return {
+      type: 'workout' as const,
+      id: row.id as number,
+      data: {
+        id: row.id as number,
+        workout_name: row.workout_name as string,
+        source_url: row.source_url as string,
+        creator: row.creator as string,
+        workout_type: row.workout_type as string,
+        total_duration_min: row.total_duration_min as number,
+        estimated_calories: row.estimated_calories as number,
+        exercises: JSON.parse((row.exercises_json as string) || '[]'),
+      },
+    };
+  }
+
+  if (recipeRow.rows.length > 0) {
+    const row = recipeRow.rows[0] as Record<string, unknown>;
+    return {
+      type: 'recipe' as const,
+      id: row.id as number,
+      data: {
+        id: row.id as number,
+        recipe_name: row.recipe_name as string,
+        source_url: row.source_url as string,
+        creator: row.creator as string,
+        goal_category: row.goal_category as string,
+        ingredients: JSON.parse((row.ingredients_json as string) || '[]'),
+        steps: JSON.parse((row.steps_json as string) || '[]'),
+        calories: row.calories as number,
+        protein_g: row.protein_g as number,
+        carb_g: row.carb_g as number,
+        fat_g: row.fat_g as number,
+        cooking_time_min: row.cooking_time_min as number,
+        difficulty: row.difficulty as string,
+        meal_type: row.meal_type as string,
+        tags: JSON.parse((row.tags_json as string) || '[]'),
+      },
+    };
+  }
+
+  return null;
+}
+
 export async function POST(request: Request) {
   try {
     const { url } = await request.json();
@@ -18,6 +70,18 @@ export async function POST(request: Request) {
     }
 
     const sourceUrl = `https://www.youtube.com/watch?v=${videoId}`;
+
+    // Check cache — return existing result if already analyzed
+    const cached = await findCached(sourceUrl);
+    if (cached) {
+      return NextResponse.json({
+        type: cached.type,
+        saved: true,
+        cached: true,
+        id: cached.id,
+        data: cached.data,
+      });
+    }
 
     // Fetch transcript and metadata in parallel
     const [transcript, metadata] = await Promise.all([
@@ -41,6 +105,7 @@ export async function POST(request: Request) {
         return NextResponse.json({
           type: 'workout',
           saved: false,
+          cached: false,
           data: workout,
           message: '운동 정보를 추출할 수 없습니다. 자막에 운동 설명이 부족합니다.',
         });
@@ -64,6 +129,7 @@ export async function POST(request: Request) {
       return NextResponse.json({
         type: 'workout',
         saved: true,
+        cached: false,
         id: Number(result.lastInsertRowid),
         data: workout,
       });
@@ -80,6 +146,7 @@ export async function POST(request: Request) {
         return NextResponse.json({
           type: 'recipe',
           saved: false,
+          cached: false,
           data: recipe,
           message: '레시피 정보를 추출할 수 없습니다. 자막에 요리 설명이 부족합니다.',
         });
@@ -111,6 +178,7 @@ export async function POST(request: Request) {
       return NextResponse.json({
         type: 'recipe',
         saved: true,
+        cached: false,
         id: Number(result.lastInsertRowid),
         data: recipe,
       });
