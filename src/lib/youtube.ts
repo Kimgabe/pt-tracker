@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { YoutubeTranscript } from 'youtube-transcript';
 
 export interface TranscriptSegment {
   text: string;
@@ -24,19 +25,27 @@ export function extractVideoId(url: string): string | null {
   return null;
 }
 
-interface InnerTubeCaptionTrack {
+interface CaptionTrack {
   baseUrl: string;
   languageCode: string;
 }
 
-interface InnerTubeEvent {
+interface CaptionEvent {
   tStartMs?: number;
   dDurationMs?: number;
   segs?: { utf8: string }[];
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+interface WatchPageData {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  captions?: { playerCaptionsTracklistRenderer?: { captionTracks?: CaptionTrack[] } };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  streamingData?: { adaptiveFormats?: any[] };
+}
+
 /** Parse json3 caption events into TranscriptSegments */
-function parseJson3Events(events: InnerTubeEvent[]): TranscriptSegment[] {
+function parseJson3Events(events: CaptionEvent[]): TranscriptSegment[] {
   return events
     .filter(e => e.segs && e.segs.some(s => s.utf8?.trim()))
     .map(e => ({
@@ -47,72 +56,35 @@ function parseJson3Events(events: InnerTubeEvent[]): TranscriptSegment[] {
     .filter(s => s.text.length > 0);
 }
 
-// ─── Tier 1: InnerTube API (보정된 파라미터) ───
+/** Extract JSON object from HTML using brace-matching (not regex — handles 60KB+ payloads) */
+function extractJsonFromHtml(html: string, marker: string): object | null {
+  const idx = html.indexOf(marker);
+  if (idx < 0) return null;
 
-async function fetchTranscriptViaInnerTube(videoId: string): Promise<TranscriptResult> {
-  const playerRes = await fetch('https://www.youtube.com/youtubei/v1/player', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-      'X-YouTube-Client-Name': '1',
-      'X-YouTube-Client-Version': '2.20260510.00.00',
-    },
-    body: JSON.stringify({
-      videoId,
-      context: {
-        client: {
-          clientName: 'WEB',
-          clientVersion: '2.20260510.00.00',
-          hl: 'ko',
-          gl: 'KR',
-          userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-        },
-      },
-    }),
-    cache: 'no-store',
-  });
+  const startBrace = html.indexOf('{', idx);
+  if (startBrace < 0) return null;
 
-  if (!playerRes.ok) {
-    throw new Error('YouTube InnerTube 서버에 연결할 수 없습니다');
+  let depth = 0;
+  for (let i = startBrace; i < html.length; i++) {
+    if (html[i] === '{') depth++;
+    else if (html[i] === '}') {
+      depth--;
+      if (depth === 0) {
+        try {
+          return JSON.parse(html.substring(startBrace, i + 1));
+        } catch {
+          return null;
+        }
+      }
+    }
   }
-
-  const player = await playerRes.json();
-  const tracks: InnerTubeCaptionTrack[] | undefined =
-    player?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-
-  if (!tracks?.length) {
-    throw new Error('InnerTube: 자막 트랙 없음');
-  }
-
-  // Prefer ko → en → first available
-  const track =
-    tracks.find(t => t.languageCode === 'ko') ??
-    tracks.find(t => t.languageCode === 'en') ??
-    tracks[0];
-
-  const captionRes = await fetch(track.baseUrl + '&fmt=json3', { cache: 'no-store' });
-  if (!captionRes.ok) {
-    throw new Error('자막 데이터를 가져올 수 없습니다');
-  }
-
-  const captionData = await captionRes.json();
-  const events: InnerTubeEvent[] = captionData.events ?? [];
-  const segments = parseJson3Events(events);
-
-  if (segments.length === 0) {
-    throw new Error('InnerTube: 파싱된 자막 세그먼트 없음');
-  }
-
-  const text = segments.map(s => s.text).join(' ');
-  return { text, segments, videoId };
+  return null;
 }
 
-// ─── Tier 2: Watch page HTML 파싱 (Vercel 호환) ───
+// ─── Watch page fetch (shared between tiers) ───
 
-async function fetchTranscriptViaWatchPage(videoId: string): Promise<TranscriptResult> {
-  const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
-  const res = await fetch(watchUrl, {
+async function fetchWatchPageData(videoId: string): Promise<WatchPageData> {
+  const res = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
       'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
@@ -125,104 +97,72 @@ async function fetchTranscriptViaWatchPage(videoId: string): Promise<TranscriptR
   }
 
   const html = await res.text();
+  const player = extractJsonFromHtml(html, 'ytInitialPlayerResponse');
 
-  // Extract ytInitialPlayerResponse from the HTML
-  // Use a greedy match up to the closing }; pattern — handles varying script contexts
-  const playerMatch = html.match(/var\s+ytInitialPlayerResponse\s*=\s*(\{[\s\S]+?\})\s*;/);
-  if (!playerMatch) {
-    throw new Error('Watch page: ytInitialPlayerResponse를 찾을 수 없습니다');
+  if (!player) {
+    throw new Error('Watch page: ytInitialPlayerResponse 파싱 실패');
   }
 
-  let player: Record<string, unknown>;
-  try {
-    player = JSON.parse(playerMatch[1]);
-  } catch {
-    throw new Error('Watch page: Player 응답 JSON 파싱 실패');
-  }
+  return player as WatchPageData;
+}
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const captions = (player as any)?.captions?.playerCaptionsTracklistRenderer?.captionTracks as InnerTubeCaptionTrack[] | undefined;
+// ─── Tier 1: Watch page → 자막 추출 (free, 가장 안정적) ───
 
-  if (!captions?.length) {
-    throw new Error('Watch page: 자막 트랙 없음');
+async function fetchTranscriptFromCaptions(
+  data: WatchPageData,
+  videoId: string,
+): Promise<TranscriptResult> {
+  const tracks = data.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+
+  if (!tracks?.length) {
+    throw new Error('자막 트랙 없음');
   }
 
   const track =
-    captions.find(t => t.languageCode === 'ko') ??
-    captions.find(t => t.languageCode === 'en') ??
-    captions[0];
+    tracks.find(t => t.languageCode === 'ko') ??
+    tracks.find(t => t.languageCode === 'en') ??
+    tracks[0];
 
   const captionRes = await fetch(track.baseUrl + '&fmt=json3', { cache: 'no-store' });
   if (!captionRes.ok) {
-    throw new Error('Watch page: 자막 데이터 가져오기 실패');
+    throw new Error('자막 데이터 가져오기 실패');
   }
 
   const captionData = await captionRes.json();
-  const events: InnerTubeEvent[] = captionData.events ?? [];
+  const events: CaptionEvent[] = captionData.events ?? [];
   const segments = parseJson3Events(events);
 
   if (segments.length === 0) {
-    throw new Error('Watch page: 파싱된 자막 세그먼트 없음');
+    throw new Error('파싱된 자막 세그먼트 없음');
   }
 
   const text = segments.map(s => s.text).join(' ');
   return { text, segments, videoId };
 }
 
-// ─── Tier 3: Whisper API fallback (Vercel 호환) ───
+// ─── Tier 2: Watch page streamingData → Whisper API (비용 발생) ───
 
-/** Extract a direct audio stream URL from YouTube using the InnerTube streaming data */
-async function getAudioStreamUrl(videoId: string): Promise<string> {
-  const playerRes = await fetch('https://www.youtube.com/youtubei/v1/player', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'User-Agent': 'com.google.android.youtube/19.47.53 (Linux; U; Android 14)',
-    },
-    body: JSON.stringify({
-      videoId,
-      context: {
-        client: {
-          clientName: 'ANDROID',
-          clientVersion: '19.47.53',
-          androidSdkVersion: 34,
-          hl: 'ko',
-          gl: 'KR',
-        },
-      },
-    }),
-    cache: 'no-store',
-  });
-
-  if (!playerRes.ok) {
-    throw new Error('Whisper: 오디오 스트림 정보 가져오기 실패');
-  }
-
-  const player = await playerRes.json();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const formats = (player as any)?.streamingData?.adaptiveFormats as any[] | undefined;
+async function fetchTranscriptViaWhisper(
+  data: WatchPageData,
+  videoId: string,
+): Promise<TranscriptResult> {
+  const formats = data.streamingData?.adaptiveFormats;
 
   if (!formats?.length) {
     throw new Error('Whisper: 스트리밍 포맷 없음');
   }
 
-  // Find audio-only format, prefer low bitrate for speed
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const audioFormat = formats
-    .filter((f: { mimeType?: string }) => f.mimeType?.startsWith('audio/'))
-    .sort((a: { bitrate?: number }, b: { bitrate?: number }) => (a.bitrate ?? 0) - (b.bitrate ?? 0))[0];
+    .filter((f: any) => f.mimeType?.startsWith('audio/'))
+    .sort((a: any, b: any) => (a.bitrate ?? 0) - (b.bitrate ?? 0))[0];
 
   if (!audioFormat?.url) {
-    throw new Error('Whisper: 오디오 URL을 찾을 수 없습니다');
+    throw new Error('Whisper: 오디오 URL 없음');
   }
 
-  return audioFormat.url;
-}
-
-async function fetchTranscriptViaWhisper(videoId: string): Promise<TranscriptResult> {
-  const audioUrl = await getAudioStreamUrl(videoId);
-
-  // Download audio into a buffer (limit to ~10MB for Whisper API / Vercel memory)
-  const audioRes = await fetch(audioUrl, {
+  // Download audio (limit ~10MB for Whisper API / Vercel memory)
+  const audioRes = await fetch(audioFormat.url, {
     headers: { Range: 'bytes=0-10485760' },
   });
 
@@ -231,12 +171,9 @@ async function fetchTranscriptViaWhisper(videoId: string): Promise<TranscriptRes
   }
 
   const audioBuffer = Buffer.from(await audioRes.arrayBuffer());
-
-  // Create a File-like object for the OpenAI SDK
   const audioFile = new File([audioBuffer], `${videoId}.webm`, { type: 'audio/webm' });
 
   const openai = new OpenAI();
-
   const whisperRes = await openai.audio.transcriptions.create({
     model: 'whisper-1',
     file: audioFile,
@@ -265,7 +202,6 @@ async function fetchTranscriptViaWhisper(videoId: string): Promise<TranscriptRes
     throw new Error('Whisper: 음성 인식 결과가 비어 있습니다');
   }
 
-  // If no segments from Whisper, create a single segment from the full text
   if (segments.length === 0) {
     segments.push({ text: text.trim(), offset: 0, duration: 0 });
   }
@@ -273,28 +209,53 @@ async function fetchTranscriptViaWhisper(videoId: string): Promise<TranscriptRes
   return { text, segments, videoId };
 }
 
-// ─── Main entry: 3-tier fallback chain ───
+// ─── Tier 1: youtube-transcript 패키지 (Android InnerTube, 서버리스 친화적) ───
+
+async function fetchTranscriptViaPackage(videoId: string): Promise<TranscriptResult> {
+  const segs = await YoutubeTranscript.fetchTranscript(videoId, { lang: 'ko' });
+
+  if (!segs.length) {
+    throw new Error('youtube-transcript: 자막 세그먼트 없음');
+  }
+
+  const segments: TranscriptSegment[] = segs.map(s => ({
+    text: s.text.trim(),
+    offset: (s.offset ?? 0) / 1000,
+    duration: (s.duration ?? 0) / 1000,
+  })).filter(s => s.text.length > 0);
+
+  if (segments.length === 0) {
+    throw new Error('youtube-transcript: 파싱된 세그먼트 없음');
+  }
+
+  const text = segments.map(s => s.text).join(' ');
+  return { text, segments, videoId };
+}
+
+// ─── Main entry: 3-tier 독립 fallback ───
 
 export async function fetchTranscript(videoId: string): Promise<TranscriptResult> {
   const errors: string[] = [];
 
-  // Tier 1: InnerTube API (fastest, free)
+  // Tier 1: youtube-transcript 패키지 (Android InnerTube 경유, 비용 0)
   try {
-    return await fetchTranscriptViaInnerTube(videoId);
+    return await fetchTranscriptViaPackage(videoId);
   } catch (e) {
-    errors.push(`InnerTube: ${e instanceof Error ? e.message : String(e)}`);
+    errors.push(`패키지: ${e instanceof Error ? e.message : String(e)}`);
   }
 
-  // Tier 2: Watch page HTML parsing (free, Vercel compatible)
+  // Tier 2: Watch page 파싱 (별도 fetch, 비용 0)
   try {
-    return await fetchTranscriptViaWatchPage(videoId);
+    const watchData = await fetchWatchPageData(videoId);
+    return await fetchTranscriptFromCaptions(watchData, videoId);
   } catch (e) {
     errors.push(`WatchPage: ${e instanceof Error ? e.message : String(e)}`);
   }
 
-  // Tier 3: Whisper API (costs money, but always works for audio content)
+  // Tier 3: Whisper STT (별도 watch page fetch → 오디오 → OpenAI, 비용 발생)
   try {
-    return await fetchTranscriptViaWhisper(videoId);
+    const watchData = await fetchWatchPageData(videoId);
+    return await fetchTranscriptViaWhisper(watchData, videoId);
   } catch (e) {
     errors.push(`Whisper: ${e instanceof Error ? e.message : String(e)}`);
   }
