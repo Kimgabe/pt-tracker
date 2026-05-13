@@ -212,7 +212,13 @@ async function fetchTranscriptViaWhisper(
 // ─── Tier 1: youtube-transcript 패키지 (Android InnerTube, 서버리스 친화적) ───
 
 async function fetchTranscriptViaPackage(videoId: string): Promise<TranscriptResult> {
-  const segs = await YoutubeTranscript.fetchTranscript(videoId, { lang: 'ko' });
+  // lang 제한 없이 시도 → 자동생성 자막 포함 모든 언어 허용
+  let segs = await YoutubeTranscript.fetchTranscript(videoId).catch(() => []);
+
+  // 실패 시 한국어 명시 재시도
+  if (!segs.length) {
+    segs = await YoutubeTranscript.fetchTranscript(videoId, { lang: 'ko' });
+  }
 
   if (!segs.length) {
     throw new Error('youtube-transcript: 자막 세그먼트 없음');
@@ -232,7 +238,41 @@ async function fetchTranscriptViaPackage(videoId: string): Promise<TranscriptRes
   return { text, segments, videoId };
 }
 
-// ─── Main entry: 3-tier 독립 fallback ───
+// ─── Tier 2.5: Description 타임스탬프 파싱 (비용 0, Whisper보다 저렴한 fallback) ───
+
+function parseDescriptionTimestamps(description: string, videoId: string): TranscriptResult | null {
+  // 타임스탬프 패턴: "0:00 제목" or "00:00 제목" or "0:00:00 제목"
+  const lines = description.split('\n');
+  const timestampRegex = /^(\d{1,2}:)?(\d{1,2}):(\d{2})\s+(.+)/;
+  const segments: TranscriptSegment[] = [];
+
+  for (const line of lines) {
+    const match = line.trim().match(timestampRegex);
+    if (match) {
+      const hours = match[1] ? parseInt(match[1]) : 0;
+      const minutes = parseInt(match[2]);
+      const seconds = parseInt(match[3]);
+      const text = match[4].trim();
+      const offset = hours * 3600 + minutes * 60 + seconds;
+      segments.push({ text, offset, duration: 0 });
+    }
+  }
+
+  if (segments.length < 3) return null; // 타임스탬프가 너무 적으면 무의미
+
+  // duration 계산 (다음 세그먼트까지의 시간)
+  for (let i = 0; i < segments.length - 1; i++) {
+    segments[i].duration = segments[i + 1].offset - segments[i].offset;
+  }
+  if (segments.length > 0) {
+    segments[segments.length - 1].duration = 60; // 마지막은 임의 1분
+  }
+
+  const text = segments.map(s => s.text).join(' ');
+  return { text, segments, videoId };
+}
+
+// ─── Main entry: 4-tier fallback (watch page 1회 공유) ───
 
 export async function fetchTranscript(videoId: string): Promise<TranscriptResult> {
   const errors: string[] = [];
@@ -241,23 +281,45 @@ export async function fetchTranscript(videoId: string): Promise<TranscriptResult
   try {
     return await fetchTranscriptViaPackage(videoId);
   } catch (e) {
-    errors.push(`패키지: ${e instanceof Error ? e.message : String(e)}`);
+    errors.push(`InnerTube: ${e instanceof Error ? e.message : String(e)}`);
   }
 
-  // Tier 2: Watch page 파싱 (별도 fetch, 비용 0)
+  // Watch page 1회만 fetch → Tier 2, 3, 4에서 공유
+  let watchData: WatchPageData | null = null;
   try {
-    const watchData = await fetchWatchPageData(videoId);
-    return await fetchTranscriptFromCaptions(watchData, videoId);
+    watchData = await fetchWatchPageData(videoId);
   } catch (e) {
-    errors.push(`WatchPage: ${e instanceof Error ? e.message : String(e)}`);
+    errors.push(`WatchPage fetch: ${e instanceof Error ? e.message : String(e)}`);
   }
 
-  // Tier 3: Whisper STT (별도 watch page fetch → 오디오 → OpenAI, 비용 발생)
+  // Tier 2: Watch page 자막 트랙 (비용 0)
+  if (watchData) {
+    try {
+      return await fetchTranscriptFromCaptions(watchData, videoId);
+    } catch (e) {
+      errors.push(`WatchPage: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  // Tier 3: Description 타임스탬프 파싱 (비용 0)
   try {
-    const watchData = await fetchWatchPageData(videoId);
-    return await fetchTranscriptViaWhisper(watchData, videoId);
+    const metadata = await fetchVideoMetadata(`https://www.youtube.com/watch?v=${videoId}`);
+    if (metadata.description) {
+      const result = parseDescriptionTimestamps(metadata.description, videoId);
+      if (result) return result;
+    }
+    errors.push('Description: 유효한 타임스탬프 없음');
   } catch (e) {
-    errors.push(`Whisper: ${e instanceof Error ? e.message : String(e)}`);
+    errors.push(`Description: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  // Tier 4: Whisper STT (비용 발생, 최종 fallback)
+  if (watchData) {
+    try {
+      return await fetchTranscriptViaWhisper(watchData, videoId);
+    } catch (e) {
+      errors.push(`Whisper: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   throw new Error(`자막을 가져올 수 없습니다.\n${errors.join('\n')}`);
