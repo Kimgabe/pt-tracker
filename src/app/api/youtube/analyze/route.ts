@@ -2,8 +2,8 @@ import { NextResponse } from 'next/server';
 import db from '@/lib/db';
 import { extractVideoId, fetchTranscript, fetchVideoMetadata } from '@/lib/youtube';
 import { classifyContent } from '@/lib/pipelines/contentClassifier';
-import { extractWorkout } from '@/lib/pipelines/workoutExtractor';
-import { extractRecipe } from '@/lib/pipelines/recipeExtractor';
+import { extractWorkout, WORKOUT_PROMPT_VERSION } from '@/lib/pipelines/workoutExtractor';
+import { extractRecipe, RECIPE_PROMPT_VERSION } from '@/lib/pipelines/recipeExtractor';
 
 async function findCached(sourceUrl: string) {
   const [workoutRow, recipeRow] = await Promise.all([
@@ -13,6 +13,12 @@ async function findCached(sourceUrl: string) {
 
   if (workoutRow.rows.length > 0) {
     const row = workoutRow.rows[0] as Record<string, unknown>;
+    const cachedVersion = (row.prompt_version as string) ?? '';
+    if (cachedVersion !== WORKOUT_PROMPT_VERSION) {
+      // Stale cache — delete and re-analyze
+      await db.execute({ sql: 'DELETE FROM youtube_workouts WHERE id = ?', args: [row.id as number] });
+      return null;
+    }
     return {
       type: 'workout' as const,
       id: row.id as number,
@@ -31,6 +37,12 @@ async function findCached(sourceUrl: string) {
 
   if (recipeRow.rows.length > 0) {
     const row = recipeRow.rows[0] as Record<string, unknown>;
+    const cachedVersion = (row.prompt_version as string) ?? '';
+    if (cachedVersion !== RECIPE_PROMPT_VERSION) {
+      // Stale cache — delete and re-analyze
+      await db.execute({ sql: 'DELETE FROM youtube_recipes WHERE id = ?', args: [row.id as number] });
+      return null;
+    }
     return {
       type: 'recipe' as const,
       id: row.id as number,
@@ -113,8 +125,8 @@ export async function POST(request: Request) {
 
       // Save to DB
       const result = await db.execute({
-        sql: `INSERT INTO youtube_workouts (workout_name, source_url, creator, workout_type, total_duration_min, estimated_calories, exercises_json)
-              VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        sql: `INSERT INTO youtube_workouts (workout_name, source_url, creator, workout_type, total_duration_min, estimated_calories, exercises_json, prompt_version)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         args: [
           workout.workout_name,
           workout.source_url,
@@ -123,6 +135,7 @@ export async function POST(request: Request) {
           workout.total_duration_min,
           workout.estimated_calories,
           JSON.stringify(workout.exercises),
+          WORKOUT_PROMPT_VERSION,
         ],
       });
 
@@ -154,8 +167,8 @@ export async function POST(request: Request) {
 
       // Save to DB
       const result = await db.execute({
-        sql: `INSERT INTO youtube_recipes (recipe_name, source_url, creator, goal_category, ingredients_json, steps_json, calories, protein_g, carb_g, fat_g, estimated_cost_krw, cooking_time_min, difficulty, meal_type, tags_json)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        sql: `INSERT INTO youtube_recipes (recipe_name, source_url, creator, goal_category, ingredients_json, steps_json, calories, protein_g, carb_g, fat_g, estimated_cost_krw, cooking_time_min, difficulty, meal_type, tags_json, prompt_version)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         args: [
           recipe.recipe_name,
           recipe.source_url,
@@ -172,6 +185,7 @@ export async function POST(request: Request) {
           recipe.difficulty,
           recipe.meal_type,
           JSON.stringify(recipe.tags),
+          RECIPE_PROMPT_VERSION,
         ],
       });
 

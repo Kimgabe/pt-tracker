@@ -142,4 +142,13 @@ export async function initializeDatabase() {
       args: [],
     },
   ]);
+
+  // Add prompt_version column to existing tables (idempotent — fails silently if already exists)
+  for (const table of ['youtube_workouts', 'youtube_recipes']) {
+    try {
+      await db.execute({ sql: `ALTER TABLE ${table} ADD COLUMN prompt_version TEXT NOT NULL DEFAULT ''`, args: [] });
+    } catch {
+      // Column already exists — ignore
+    }
+  }
 }

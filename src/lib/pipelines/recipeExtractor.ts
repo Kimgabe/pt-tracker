@@ -1,6 +1,9 @@
 import { callLLM, parseJSON } from '../llm';
 import type { TranscriptSegment } from '../youtube';
 
+/** Bump this when recipe extraction prompts change to auto-invalidate cached results */
+export const RECIPE_PROMPT_VERSION = 'r-2026-05-14';
+
 export interface ExtractedIngredient {
   name: string;
   amount: string;

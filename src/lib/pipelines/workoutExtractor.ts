@@ -1,6 +1,9 @@
 import { callLLM, parseJSON } from '../llm';
 import type { TranscriptSegment } from '../youtube';
 
+/** Bump this when workout extraction prompts change to auto-invalidate cached results */
+export const WORKOUT_PROMPT_VERSION = 'w-2026-05-14';
+
 export interface ExtractedExercise {
   name: string;
   sets: number;
