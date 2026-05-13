@@ -1,3 +1,8 @@
+import { execFile } from 'child_process';
+import { readFile, unlink } from 'fs/promises';
+import { tmpdir } from 'os';
+import { join } from 'path';
+
 export interface TranscriptSegment {
   text: string;
   offset: number;  // seconds
@@ -33,8 +38,82 @@ interface InnerTubeEvent {
   segs?: { utf8: string }[];
 }
 
+/** Parse json3 caption events into TranscriptSegments */
+function parseJson3Events(events: InnerTubeEvent[]): TranscriptSegment[] {
+  return events
+    .filter(e => e.segs && e.segs.some(s => s.utf8?.trim()))
+    .map(e => ({
+      text: e.segs!.map(s => s.utf8).join('').trim(),
+      offset: (e.tStartMs ?? 0) / 1000,
+      duration: (e.dDurationMs ?? 0) / 1000,
+    }))
+    .filter(s => s.text.length > 0);
+}
+
+/** Try yt-dlp for a single language, return segments or null */
+async function tryYtDlpLang(videoId: string, lang: string): Promise<TranscriptResult | null> {
+  const prefix = join(tmpdir(), `yt-sub-${videoId}-${lang}-${Date.now()}`);
+  const url = `https://www.youtube.com/watch?v=${videoId}`;
+  const filePath = `${prefix}.${lang}.json3`;
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const proc = execFile(
+        'yt-dlp',
+        [
+          '--write-auto-sub',
+          '--sub-lang', lang,
+          '--sub-format', 'json3',
+          '--skip-download',
+          '--no-warnings',
+          '-o', prefix,
+          url,
+        ],
+        { timeout: 30_000 },
+        (err) => (err ? reject(err) : resolve()),
+      );
+      proc.stderr?.on('data', () => {}); // drain
+    });
+
+    const raw = await readFile(filePath, 'utf-8');
+    const captionData = JSON.parse(raw);
+    const events: InnerTubeEvent[] = captionData.events ?? [];
+    const segments = parseJson3Events(events);
+
+    if (segments.length === 0) return null;
+
+    const text = segments.map(s => s.text).join(' ');
+    return { text, segments, videoId };
+  } catch {
+    return null;
+  } finally {
+    unlink(filePath).catch(() => {});
+  }
+}
+
+/** Fallback: use yt-dlp CLI to fetch auto-generated subtitles (try each lang separately to avoid rate-limit cascading) */
+async function fetchTranscriptViaCli(videoId: string): Promise<TranscriptResult> {
+  for (const lang of ['ko', 'en']) {
+    const result = await tryYtDlpLang(videoId, lang);
+    if (result) return result;
+  }
+  throw new Error('yt-dlp: 자막을 가져올 수 없습니다');
+}
+
 export async function fetchTranscript(videoId: string): Promise<TranscriptResult> {
-  // Use YouTube InnerTube API — resilient to bot-blocking on serverless (Vercel)
+  // 1) Try InnerTube API first (fast, no subprocess)
+  try {
+    const result = await fetchTranscriptViaInnerTube(videoId);
+    return result;
+  } catch {
+    // InnerTube failed — fall through to yt-dlp
+  }
+
+  // 2) Fallback: yt-dlp CLI (handles bot-blocking, JS challenges, auto-captions)
+  return fetchTranscriptViaCli(videoId);
+}
+
+async function fetchTranscriptViaInnerTube(videoId: string): Promise<TranscriptResult> {
   const playerRes = await fetch('https://www.youtube.com/youtubei/v1/player', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -72,15 +151,7 @@ export async function fetchTranscript(videoId: string): Promise<TranscriptResult
 
   const captionData = await captionRes.json();
   const events: InnerTubeEvent[] = captionData.events ?? [];
-
-  const segments: TranscriptSegment[] = events
-    .filter(e => e.segs && e.segs.some(s => s.utf8?.trim()))
-    .map(e => ({
-      text: e.segs!.map(s => s.utf8).join('').trim(),
-      offset: (e.tStartMs ?? 0) / 1000,
-      duration: (e.dDurationMs ?? 0) / 1000,
-    }))
-    .filter(s => s.text.length > 0);
+  const segments = parseJson3Events(events);
 
   if (segments.length === 0) {
     throw new Error('자막을 찾을 수 없습니다');
