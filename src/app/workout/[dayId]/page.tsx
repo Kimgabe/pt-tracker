@@ -127,7 +127,7 @@ export default function WorkoutPage() {
   // YouTube follow-along state
   const [videoTimestamp, setVideoTimestamp] = useState(0);
   const [videoKey, setVideoKey] = useState(0);
-  const [videoVisible, setVideoVisible] = useState(true);
+  const [videoVisible, setVideoVisible] = useState(false);
   const [checkedExercises, setCheckedExercises] = useState<boolean[]>([]);
 
   // Edit mode state
@@ -286,6 +286,7 @@ export default function WorkoutPage() {
   const seekTo = (ts: number) => {
     setVideoTimestamp(ts);
     setVideoKey((k) => k + 1);
+    setVideoVisible(true);
   };
 
   const toggleCheck = (idx: number) => {
