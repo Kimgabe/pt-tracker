@@ -49,15 +49,17 @@ async function buildFromDescriptionTimestamps(
   creator?: string | null,
   sourceUrl: string = '',
 ): Promise<ExtractedWorkout> {
-  const exercises: ExtractedExercise[] = timestamps.map(t => ({
-    name: t.name,
-    sets: 1,
-    reps: '영상 참고',
-    rest_seconds: 10,
-    equipment: [],
-    target_muscles: [],
-    timestamp_seconds: t.timestamp_seconds,
-  }));
+  const exercises: ExtractedExercise[] = [...timestamps]
+    .sort((a, b) => a.timestamp_seconds - b.timestamp_seconds)
+    .map(t => ({
+      name: t.name,
+      sets: 1,
+      reps: '영상 참고',
+      rest_seconds: 10,
+      equipment: [],
+      target_muscles: [],
+      timestamp_seconds: t.timestamp_seconds,
+    }));
 
   const exerciseList = timestamps.map(t => t.name).join(', ');
   const titleHint = videoTitle ? `\nVideo title: "${videoTitle}"` : '';
@@ -218,6 +220,10 @@ ${truncated}`,
       target_muscles: (ex.target_muscles as string[]) ?? [],
       timestamp_seconds: timestamp,
     };
+  }).sort((a, b) => {
+    if (a.timestamp_seconds === null) return 1;
+    if (b.timestamp_seconds === null) return -1;
+    return a.timestamp_seconds - b.timestamp_seconds;
   });
 
   // === Stage 3: Meta info ===
