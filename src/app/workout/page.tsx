@@ -10,6 +10,7 @@ interface Program {
   description: string | null;
   source: string | null;
   source_url: string | null;
+  first_day_id: number | null;
 }
 
 export default function WorkoutPage() {
@@ -59,7 +60,13 @@ export default function WorkoutPage() {
           return (
             <button
               key={program.id}
-              onClick={() => router.push(`/workout/program/${program.id}`)}
+              onClick={() => {
+                if (program.source === 'youtube' && program.first_day_id) {
+                  router.push(`/workout/${program.first_day_id}`);
+                } else {
+                  router.push(`/workout/program/${program.id}`);
+                }
+              }}
               className="w-full bg-zinc-900 border border-zinc-800 rounded-2xl p-4 flex items-center gap-4 hover:border-zinc-700 active:scale-[0.98] transition-all text-left"
             >
               <div className="w-12 h-12 rounded-xl bg-zinc-800 flex items-center justify-center shrink-0">

@@ -46,6 +46,25 @@ export async function POST(req: Request) {
     }> = JSON.parse(row.exercises_json as string);
     const workoutType = row.workout_type as string;
 
+    // 1b. Delete any existing programs for the same source_url (keep only latest)
+    const existing_programs = await db.execute({
+      sql: 'SELECT id FROM programs WHERE source_url = ?',
+      args: [row.source_url],
+    });
+    for (const ep of existing_programs.rows) {
+      const pid = ep.id as number;
+      const dayIds = await db.execute({ sql: 'SELECT id FROM program_days WHERE program_id = ?', args: [pid] });
+      const dids = dayIds.rows.map(r => r.id as number);
+      if (dids.length > 0) {
+        const didList = dids.join(',');
+        await db.execute({ sql: `DELETE FROM workout_sets WHERE session_id IN (SELECT id FROM workout_sessions WHERE program_day_id IN (${didList}))`, args: [] });
+        await db.execute({ sql: `DELETE FROM workout_sessions WHERE program_day_id IN (${didList})`, args: [] });
+        await db.execute({ sql: `DELETE FROM program_day_exercises WHERE program_day_id IN (${didList})`, args: [] });
+        await db.execute({ sql: `DELETE FROM program_days WHERE program_id = ?`, args: [pid] });
+      }
+      await db.execute({ sql: 'DELETE FROM programs WHERE id = ?', args: [pid] });
+    }
+
     // 2. Create program
     const program = await db.execute({
       sql: `INSERT INTO programs (name, description, days_per_week, source, source_url)
@@ -93,9 +112,9 @@ export async function POST(req: Request) {
       // Link to program day
       const reps = typeof ex.reps === 'number' ? String(ex.reps) : (ex.reps || '영상 참고');
       await db.execute({
-        sql: `INSERT INTO program_day_exercises (program_day_id, exercise_id, sets, reps, rest_seconds, order_num)
-              VALUES (?, ?, ?, ?, ?, ?)`,
-        args: [dayId, exerciseId, ex.sets || 1, reps, ex.rest_seconds || 30, orderNum++],
+        sql: `INSERT INTO program_day_exercises (program_day_id, exercise_id, sets, reps, rest_seconds, order_num, timestamp_seconds)
+              VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        args: [dayId, exerciseId, ex.sets || 1, reps, ex.rest_seconds || 30, orderNum++, ex.timestamp_seconds ?? null],
       });
     }
 

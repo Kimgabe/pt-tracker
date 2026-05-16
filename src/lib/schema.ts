@@ -164,4 +164,11 @@ export async function initializeDatabase() {
       // Column already exists — ignore
     }
   }
+
+  // Add timestamp_seconds to program_day_exercises for YouTube follow-along (idempotent)
+  try {
+    await db.execute({ sql: `ALTER TABLE program_day_exercises ADD COLUMN timestamp_seconds INTEGER`, args: [] });
+  } catch {
+    // Column already exists — ignore
+  }
 }
