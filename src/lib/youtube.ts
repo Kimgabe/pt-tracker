@@ -318,7 +318,7 @@ export async function fetchTranscript(videoId: string): Promise<TranscriptResult
   }
 
   // Tier 3.5: Description 텍스트 그대로 사용 — 타임스탬프 없어도 내용 추출 가능
-  if (descriptionText && descriptionText.length > 200) {
+  if (descriptionText && descriptionText.length > 50) {
     return { text: descriptionText, segments: [], videoId };
   }
 
@@ -360,7 +360,7 @@ export async function fetchVideoMetadata(videoUrl: string): Promise<{
   try {
     const res = await fetch(videoUrl, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1)',
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
       },
       cache: 'no-store',
     });

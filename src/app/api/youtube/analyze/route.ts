@@ -200,6 +200,7 @@ export async function POST(request: Request) {
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    console.error('[analyze] error:', message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
