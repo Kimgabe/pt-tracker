@@ -115,6 +115,7 @@ export default function HomePage() {
   }, [today]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     initDB().then(() => fetchData());
   }, [initDB, fetchData]);
 

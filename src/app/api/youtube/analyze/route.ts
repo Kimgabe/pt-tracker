@@ -111,6 +111,7 @@ export async function POST(request: Request) {
         metadata.title,
         metadata.author,
         sourceUrl,
+        metadata.description,
       );
 
       if (workout.exercises.length === 0) {

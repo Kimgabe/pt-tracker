@@ -150,6 +150,7 @@ export default function DietPage() {
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchMeals(selectedDate);
   }, [selectedDate, fetchMeals]);
 

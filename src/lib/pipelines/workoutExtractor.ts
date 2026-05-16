@@ -24,6 +24,68 @@ export interface ExtractedWorkout {
   source_url: string;
 }
 
+function parseDescriptionTimestamps(
+  description: string,
+): Array<{ name: string; timestamp_seconds: number }> {
+  const results: Array<{ name: string; timestamp_seconds: number }> = [];
+  const re = /^(?:(\d{1,2}):)?(\d{1,2}):(\d{2})\s+(.+)$/;
+  for (const line of description.split('\n')) {
+    const m = line.trim().match(re);
+    if (!m) continue;
+    const hours = m[1] ? parseInt(m[1]) : 0;
+    const minutes = parseInt(m[2]);
+    const seconds = parseInt(m[3]);
+    results.push({
+      name: m[4].trim(),
+      timestamp_seconds: hours * 3600 + minutes * 60 + seconds,
+    });
+  }
+  return results;
+}
+
+async function buildFromDescriptionTimestamps(
+  timestamps: Array<{ name: string; timestamp_seconds: number }>,
+  videoTitle?: string | null,
+  creator?: string | null,
+  sourceUrl: string = '',
+): Promise<ExtractedWorkout> {
+  const exercises: ExtractedExercise[] = timestamps.map(t => ({
+    name: t.name,
+    sets: 1,
+    reps: '영상 참고',
+    rest_seconds: 10,
+    equipment: [],
+    target_muscles: [],
+    timestamp_seconds: t.timestamp_seconds,
+  }));
+
+  const exerciseList = timestamps.map(t => t.name).join(', ');
+  const titleHint = videoTitle ? `\nVideo title: "${videoTitle}"` : '';
+  const stage3 = parseJSON(await callLLM(
+    'You summarize workout metadata.',
+    `Workout with exercises: [${exerciseList}]
+Workout type: cardio${titleHint}
+
+Produce:
+- workout_name: a concrete Korean routine name. If a Video title is provided, base the name on it. NEVER return a generic name like "근력 강화 루틴".
+- total_duration_min: total workout time in minutes. If the video title contains a duration (e.g. "12분", "30 min"), use that.
+
+Return JSON: {"workout_name": "...", "total_duration_min": 30}
+Return ONLY valid JSON.`,
+    { jsonMode: true, model: 'gpt-4.1-nano' }
+  ));
+
+  return {
+    workout_name: (stage3.workout_name as string) ?? videoTitle ?? '',
+    exercises,
+    total_duration_min: Number(stage3.total_duration_min) || 0,
+    estimated_calories: 0,
+    creator: creator ?? '',
+    workout_type: 'cardio',
+    source_url: sourceUrl,
+  };
+}
+
 /** Sanitize reps: accept numbers or duration strings (e.g. "30초"), reject ASR garbage */
 function sanitizeReps(raw: unknown): string | number {
   if (typeof raw === 'number' && raw > 0) return raw;
@@ -48,7 +110,16 @@ export async function extractWorkout(
   videoTitle?: string | null,
   creator?: string | null,
   sourceUrl: string = '',
+  description?: string | null,
 ): Promise<ExtractedWorkout> {
+  // Description-first path: use timestamps from video description when available
+  if (description) {
+    const descTimestamps = parseDescriptionTimestamps(description);
+    if (descTimestamps.length >= 3) {
+      return buildFromDescriptionTimestamps(descTimestamps, videoTitle, creator, sourceUrl);
+    }
+  }
+
   // Format with segment indices
   let fullText = transcriptText;
   if (segments.length > 0) {

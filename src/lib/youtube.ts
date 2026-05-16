@@ -36,12 +36,15 @@ interface CaptionEvent {
   segs?: { utf8: string }[];
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+interface AdaptiveFormat {
+  mimeType?: string;
+  bitrate?: number;
+  url?: string;
+}
+
 interface WatchPageData {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   captions?: { playerCaptionsTracklistRenderer?: { captionTracks?: CaptionTrack[] } };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  streamingData?: { adaptiveFormats?: any[] };
+  streamingData?: { adaptiveFormats?: AdaptiveFormat[] };
 }
 
 /** Parse json3 caption events into TranscriptSegments */
@@ -152,10 +155,9 @@ async function fetchTranscriptViaWhisper(
     throw new Error('Whisper: 스트리밍 포맷 없음');
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const audioFormat = formats
-    .filter((f: any) => f.mimeType?.startsWith('audio/'))
-    .sort((a: any, b: any) => (a.bitrate ?? 0) - (b.bitrate ?? 0))[0];
+    .filter((f: AdaptiveFormat) => f.mimeType?.startsWith('audio/'))
+    .sort((a: AdaptiveFormat, b: AdaptiveFormat) => (a.bitrate ?? 0) - (b.bitrate ?? 0))[0];
 
   if (!audioFormat?.url) {
     throw new Error('Whisper: 오디오 URL 없음');
