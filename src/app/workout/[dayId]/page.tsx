@@ -127,7 +127,8 @@ export default function WorkoutPage() {
   // YouTube follow-along state
   const [videoTimestamp, setVideoTimestamp] = useState(0);
   const [videoKey, setVideoKey] = useState(0);
-  const [videoVisible, setVideoVisible] = useState(false);
+  const [videoVisible, setVideoVisible] = useState(true);
+  const [videoAutoplay, setVideoAutoplay] = useState(false);
   const [checkedExercises, setCheckedExercises] = useState<boolean[]>([]);
 
   // Edit mode state
@@ -286,7 +287,7 @@ export default function WorkoutPage() {
   const seekTo = (ts: number) => {
     setVideoTimestamp(ts);
     setVideoKey((k) => k + 1);
-    setVideoVisible(true);
+    setVideoAutoplay(true);
   };
 
   const toggleCheck = (idx: number) => {
@@ -468,7 +469,7 @@ export default function WorkoutPage() {
               <>
                 <iframe
                   key={videoKey}
-                  src={`https://www.youtube.com/embed/${videoId}?start=${videoTimestamp}&autoplay=1&rel=0&modestbranding=1`}
+                  src={`https://www.youtube.com/embed/${videoId}?start=${videoTimestamp}&autoplay=${videoAutoplay ? 1 : 0}&rel=0&modestbranding=1`}
                   className="w-full"
                   style={{ height: 210 }}
                   allow="autoplay; encrypted-media"
