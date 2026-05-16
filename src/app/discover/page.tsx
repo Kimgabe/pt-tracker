@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   CirclePlay,
   Search,
@@ -85,6 +86,7 @@ interface ProgramDay {
 type TabType = 'analyze' | 'workouts' | 'recipes';
 
 export default function DiscoverPage() {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<TabType>('analyze');
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
@@ -415,10 +417,10 @@ export default function DiscoverPage() {
             savedRecipes.map((r) => (
               <div key={r.id} className="relative">
                 <button
-                  onClick={() => toggleExpand(`r-${r.id}`)}
+                  onClick={() => r.id && router.push(`/recipe/${r.id}`)}
                   className="w-full text-left"
                 >
-                  <RecipeCard recipe={r} expanded={expandedId === `r-${r.id}`} />
+                  <RecipeCard recipe={r} expanded={false} />
                 </button>
                 <div className="absolute top-3 right-3 flex gap-2">
                   <button
