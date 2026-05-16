@@ -283,15 +283,20 @@ export async function fetchTranscript(videoId: string): Promise<TranscriptResult
   try {
     return await fetchTranscriptViaPackage(videoId);
   } catch (e) {
-    errors.push(`InnerTube: ${e instanceof Error ? e.message : String(e)}`);
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error(`[transcript] Tier1 FAIL: ${msg}`);
+    errors.push(`InnerTube: ${msg}`);
   }
 
   // Watch page 1회만 fetch → Tier 2, 3, 4에서 공유
   let watchData: WatchPageData | null = null;
   try {
     watchData = await fetchWatchPageData(videoId);
+    console.error('[transcript] WatchPage fetch: OK');
   } catch (e) {
-    errors.push(`WatchPage fetch: ${e instanceof Error ? e.message : String(e)}`);
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error(`[transcript] WatchPage fetch FAIL: ${msg}`);
+    errors.push(`WatchPage fetch: ${msg}`);
   }
 
   // Tier 2: Watch page 자막 트랙 (비용 0)
@@ -299,7 +304,9 @@ export async function fetchTranscript(videoId: string): Promise<TranscriptResult
     try {
       return await fetchTranscriptFromCaptions(watchData, videoId);
     } catch (e) {
-      errors.push(`WatchPage: ${e instanceof Error ? e.message : String(e)}`);
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error(`[transcript] Tier2 FAIL: ${msg}`);
+      errors.push(`WatchPage: ${msg}`);
     }
   }
 
@@ -308,17 +315,21 @@ export async function fetchTranscript(videoId: string): Promise<TranscriptResult
   try {
     const metadata = await fetchVideoMetadata(`https://www.youtube.com/watch?v=${videoId}`);
     descriptionText = metadata.description || null;
+    console.error(`[transcript] Tier3 description length: ${descriptionText?.length ?? 0}`);
     if (descriptionText) {
       const result = parseDescriptionTimestamps(descriptionText, videoId);
       if (result) return result;
     }
     errors.push('Description: 유효한 타임스탬프 없음');
   } catch (e) {
-    errors.push(`Description: ${e instanceof Error ? e.message : String(e)}`);
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error(`[transcript] Tier3 FAIL: ${msg}`);
+    errors.push(`Description: ${msg}`);
   }
 
   // Tier 3.5: Description 텍스트 그대로 사용 — 타임스탬프 없어도 내용 추출 가능
   if (descriptionText && descriptionText.length > 50) {
+    console.error(`[transcript] Tier3.5 using description text (${descriptionText.length} chars)`);
     return { text: descriptionText, segments: [], videoId };
   }
 
