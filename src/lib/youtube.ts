@@ -211,33 +211,53 @@ async function fetchTranscriptViaWhisper(
   return { text, segments, videoId };
 }
 
-// ─── Tier 1: youtube-transcript 패키지 (Android InnerTube, 서버리스 친화적) ───
+// ─── Tier 1: InnerTube 직접 호출 + 자막 XML 직접 다운로드 (WebPage fallback 없음) ───
+// youtube-transcript 패키지는 InnerTube 실패 시 WebPage fallback을 사용하는데,
+// Vercel IP에서 WebPage가 CAPTCHA를 반환하므로 패키지를 우회하고 직접 구현.
+
+const INNERTUBE_API_URL = 'https://www.youtube.com/youtubei/v1/player?prettyPrint=false';
+const INNERTUBE_CONTEXT = { client: { clientName: 'ANDROID', clientVersion: '20.10.38' } };
+const INNERTUBE_UA = 'com.google.android.youtube/20.10.38 (Linux; U; Android 14)';
 
 async function fetchTranscriptViaPackage(videoId: string): Promise<TranscriptResult> {
-  // lang 제한 없이 시도 → 자동생성 자막 포함 모든 언어 허용
-  let segs = await YoutubeTranscript.fetchTranscript(videoId).catch(() => []);
+  const resp = await fetch(INNERTUBE_API_URL, {
+    method: 'POST',
+    headers: { 'User-Agent': INNERTUBE_UA, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ videoId, context: INNERTUBE_CONTEXT }),
+  });
 
-  // 실패 시 한국어 명시 재시도
-  if (!segs.length) {
-    segs = await YoutubeTranscript.fetchTranscript(videoId, { lang: 'ko' });
+  if (!resp.ok) throw new Error(`InnerTube HTTP ${resp.status}`);
+
+  const data = await resp.json() as { captions?: { playerCaptionsTracklistRenderer?: { captionTracks?: { baseUrl: string; languageCode: string; kind?: string }[] } } };
+  const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
+
+  if (!tracks.length) throw new Error('InnerTube: 자막 트랙 없음');
+
+  // 수동 자막 우선, 없으면 asr(자동생성) 사용
+  const track = tracks.find(t => t.kind !== 'asr') ?? tracks[0];
+
+  const xmlResp = await fetch(track.baseUrl);
+  if (!xmlResp.ok) throw new Error(`InnerTube: 자막 XML HTTP ${xmlResp.status}`);
+  const xml = await xmlResp.text();
+
+  // timedtext format="3": <p t="ms" d="ms"><s>word</s></p>
+  const segments: TranscriptSegment[] = [];
+  const pRe = /<p t="(\d+)" d="(\d+)"[^>]*>([\s\S]*?)<\/p>/g;
+  const sRe = /<s[^>]*>([^<]*)<\/s>/g;
+  let pm: RegExpExecArray | null;
+  while ((pm = pRe.exec(xml)) !== null) {
+    const offsetSec = parseInt(pm[1]) / 1000;
+    const durSec = parseInt(pm[2]) / 1000;
+    let text = '';
+    let sm: RegExpExecArray | null;
+    while ((sm = sRe.exec(pm[3])) !== null) text += sm[1];
+    text = text.trim().replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+    if (text) segments.push({ text, offset: offsetSec, duration: durSec });
   }
 
-  if (!segs.length) {
-    throw new Error('youtube-transcript: 자막 세그먼트 없음');
-  }
+  if (!segments.length) throw new Error('InnerTube: 파싱된 세그먼트 없음');
 
-  const segments: TranscriptSegment[] = segs.map(s => ({
-    text: s.text.trim(),
-    offset: (s.offset ?? 0) / 1000,
-    duration: (s.duration ?? 0) / 1000,
-  })).filter(s => s.text.length > 0);
-
-  if (segments.length === 0) {
-    throw new Error('youtube-transcript: 파싱된 세그먼트 없음');
-  }
-
-  const text = segments.map(s => s.text).join(' ');
-  return { text, segments, videoId };
+  return { text: segments.map(s => s.text).join(' '), segments, videoId };
 }
 
 // ─── Tier 2.5: Description 타임스탬프 파싱 (비용 0, Whisper보다 저렴한 fallback) ───
