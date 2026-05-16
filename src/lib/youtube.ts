@@ -304,15 +304,22 @@ export async function fetchTranscript(videoId: string): Promise<TranscriptResult
   }
 
   // Tier 3: Description 타임스탬프 파싱 (비용 0)
+  let descriptionText: string | null = null;
   try {
     const metadata = await fetchVideoMetadata(`https://www.youtube.com/watch?v=${videoId}`);
-    if (metadata.description) {
-      const result = parseDescriptionTimestamps(metadata.description, videoId);
+    descriptionText = metadata.description || null;
+    if (descriptionText) {
+      const result = parseDescriptionTimestamps(descriptionText, videoId);
       if (result) return result;
     }
     errors.push('Description: 유효한 타임스탬프 없음');
   } catch (e) {
     errors.push(`Description: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  // Tier 3.5: Description 텍스트 그대로 사용 — 타임스탬프 없어도 내용 추출 가능
+  if (descriptionText && descriptionText.length > 200) {
+    return { text: descriptionText, segments: [], videoId };
   }
 
   // Tier 4: Whisper STT (비용 발생, 최종 fallback)
