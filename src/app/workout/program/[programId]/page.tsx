@@ -247,7 +247,7 @@ export default function ProgramDetailPage() {
         <div className="w-full aspect-video bg-black mb-4">
           <iframe
             key={videoKey}
-            src={`https://www.youtube.com/embed/${videoId}?start=${videoTimestamp}&autoplay=1&rel=0&modestbranding=1`}
+            src={`https://www.youtube.com/embed/${videoId}?start=${videoTimestamp}&autoplay=0&rel=0&modestbranding=1`}
             className="w-full h-full"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
             allowFullScreen
